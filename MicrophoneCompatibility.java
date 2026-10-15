@@ -1,0 +1,13 @@
+package com.shilapi.xcertplay.menglong;
+import android.app.*;import android.content.*;import android.os.*;import android.widget.*;import java.util.*;
+public final class MicrophoneCompatibility {
+ private static volatile Context app;private static final ArrayDeque<String> events=new ArrayDeque<>();private static long nextRead;private static int requests;private static long lastRequest,lastRead;private static int lastPeak;
+ public static void created(Context c){app=c.getApplicationContext();}
+ private static SharedPreferences prefs(Context c){return c.getSharedPreferences("menglong_mic_218",0);}
+ private static synchronized void add(String s){if(events.size()>=18)events.removeFirst();events.addLast(s);}
+ public static synchronized void requested(String type){requests++;lastRequest=SystemClock.elapsedRealtime();lastRead=0;lastPeak=0;nextRead=0;add("麦克风输入请求："+type);}
+ public static int source(int original,String type){Context c=app;int chosen=MicSourcePolicy.select(original,type,c==null||prefs(c).getBoolean("voice_path",true));add("采集源 "+original+" → "+chosen+"，类型="+type);return chosen;}
+ public static synchronized void read(byte[] pcm,int count){long now=SystemClock.elapsedRealtime();if(count<=0||now<nextRead)return;nextRead=now+1000;lastRead=now;lastPeak=MicSourcePolicy.peak(pcm,count);add("读到 PCM "+count+" 字节，采样峰值="+lastPeak);}
+ private static synchronized String report(){long now=SystemClock.elapsedRealtime();return "仅显示输入请求和采样数值，不保存录音。\n输入请求次数："+requests+"\n最近输入请求："+(lastRequest==0?"未收到":(now-lastRequest)/1000+" 秒前")+"\n最近 PCM："+(lastRead==0?"未读到":(now-lastRead)/1000+" 秒前")+"\n最近采样峰值："+lastPeak+"\n\n"+String.join("\n",events)+"\n\n微信录音期间先别唤起 Siri，再刷新。峰值非零仅代表车机读到信号，不证明 iPhone 已收到或微信已成功保存。";}
+ public static void settings(Activity a){LinearLayout body=new LinearLayout(a);body.setOrientation(1);body.setPadding(24,16,24,16);CheckBox enabled=new CheckBox(a);enabled.setText("微信 / 抖音录音使用语音采集源（测试）");enabled.setChecked(prefs(a).getBoolean("voice_path",true));body.addView(enabled);TextView log=new TextView(a);log.setTextSize(13);log.setTextIsSelectable(true);log.setText(report());body.addView(log);Button refresh=new Button(a);refresh.setText("刷新录音检测");refresh.setOnClickListener(v->log.setText(report()));body.addView(refresh);ScrollView scroll=new ScrollView(a);scroll.addView(body);new AlertDialog.Builder(a).setTitle("麦克风与微信录音").setView(scroll).setPositiveButton("保存",(d,w)->{prefs(a).edit().putBoolean("voice_path",enabled.isChecked()).apply();Toast.makeText(a,"已保存，请重新连接 CarPlay 后测试录语音",1).show();}).setNeutralButton("复制检测",(d,w)->((ClipboardManager)a.getSystemService(Context.CLIPBOARD_SERVICE)).setPrimaryClip(ClipData.newPlainText("麦克风检测",report()))).setNegativeButton("关闭",null).show();}
+}

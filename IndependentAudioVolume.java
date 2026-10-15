@@ -1,0 +1,21 @@
+package com.shilapi.xcertplay.menglong;
+import android.app.*;import android.content.*;import android.media.AudioTrack;import android.widget.*;
+import java.util.*;
+/** Per-player gain, independent of system stream-volume aliases. */
+public final class IndependentAudioVolume {
+ private static final WeakHashMap<AudioTrack,String> tracks=new WeakHashMap<AudioTrack,String>();
+ private static final WeakHashMap<AudioTrack,Float> nativeGains=new WeakHashMap<AudioTrack,Float>();
+ private static SharedPreferences prefs;private static int music=100,navigation=100;private static String result="等待 DiPlay 音轨";
+ public static synchronized void init(Context c){if(prefs==null){prefs=c.getApplicationContext().getSharedPreferences("menglong_independent_audio",0);music=clamp(prefs.getInt("music",100));navigation=clamp(prefs.getInt("navigation",100));applyAll();}}
+ private static int clamp(int n){return Math.max(0,Math.min(100,n));}
+ public static synchronized void track(AudioTrack t,Object channel){if(t==null)return;String n=channel instanceof Enum?((Enum<?>)channel).name():String.valueOf(channel);if(!"MEDIA".equals(n)&&!"NAVIGATION".equals(n))return;tracks.put(t,n);apply(t,n);}
+ public static synchronized void released(AudioTrack t){tracks.remove(t);nativeGains.remove(t);}
+ private static void apply(AudioTrack t,String n){try{int value="NAVIGATION".equals(n)?navigation:music;int code=t.setVolume(value/100f*(nativeGains.containsKey(t)?nativeGains.get(t):1f));result=n+" 音量 "+value+"%："+(code==AudioTrack.SUCCESS?"已应用":"播放器返回 "+code);}catch(RuntimeException e){result=n+" 音轨暂不可调："+e.getClass().getSimpleName();}}
+ public static synchronized int nativeGain(AudioTrack t,float gain){nativeGains.put(t,gain);String n=tracks.get(t);float custom="MEDIA".equals(n)?music/100f:"NAVIGATION".equals(n)?navigation/100f:1f;return t.setVolume(gain*custom);}
+ private static void applyAll(){for(Map.Entry<AudioTrack,String> e:new ArrayList<Map.Entry<AudioTrack,String>>(tracks.entrySet()))if(e.getKey()!=null)apply(e.getKey(),e.getValue());}
+ private static synchronized int value(boolean nav){return nav?navigation:music;}
+ private static synchronized void set(Context c,boolean nav,int n){init(c);if(nav)navigation=clamp(n);else music=clamp(n);prefs.edit().putInt(nav?"navigation":"music",clamp(n)).apply();applyAll();}
+ private static synchronized String status(){int m=0,n=0;for(String c:tracks.values()){if("MEDIA".equals(c))m++;if("NAVIGATION".equals(c))n++;}return "DiPlay 音轨：音乐 "+m+"，导航 "+n+"\n"+result+"\n导航播报开始后才可能出现导航音轨。";}
+ public static void settings(Activity a){init(a);LinearLayout body=new LinearLayout(a);body.setOrientation(1);int pad=Math.round(16*a.getResources().getDisplayMetrics().density);body.setPadding(pad,pad,pad,pad);TextView info=new TextView(a);info.setText("分别调节 DiPlay 内的音乐和导航声音，0% 静音，100% 保持原音量。拖动或加减立即生效并保存。电话和 Siri 不随这两个音量变化。\n声音必须经 CarPlay / DiPlay 播放器；车机蓝牙音乐和已混合到音乐中的播报不能单独分离。");body.addView(info);addControl(a,body,false);addControl(a,body,true);TextView state=new TextView(a);state.setText(status());body.addView(state);Button refresh=new Button(a);refresh.setText("刷新音轨状态");refresh.setOnClickListener(v->state.setText(status()));body.addView(refresh);new AlertDialog.Builder(a).setTitle("音乐 / 导航独立音量").setView(body).setPositiveButton("关闭",null).setNeutralButton("恢复 100%",(d,w)->{set(a,false,100);set(a,true,100);}).show();}
+ private static void addControl(Activity a,LinearLayout body,boolean nav){TextView label=new TextView(a);SeekBar slider=new SeekBar(a);slider.setMax(100);slider.setProgress(value(nav));label.setText((nav?"导航":"音乐")+"音量 "+value(nav)+"%");body.addView(label);body.addView(slider);LinearLayout buttons=new LinearLayout(a);Button down=new Button(a),up=new Button(a);down.setText("－ 5%");up.setText("＋ 5%");buttons.addView(down);buttons.addView(up);body.addView(buttons);slider.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener(){public void onProgressChanged(SeekBar s,int p,boolean user){label.setText((nav?"导航":"音乐")+"音量 "+p+"%");set(a,nav,p);}public void onStartTrackingTouch(SeekBar s){}public void onStopTrackingTouch(SeekBar s){}});down.setOnClickListener(v->slider.setProgress(clamp(slider.getProgress()-5)));up.setOnClickListener(v->slider.setProgress(clamp(slider.getProgress()+5)));}
+}
